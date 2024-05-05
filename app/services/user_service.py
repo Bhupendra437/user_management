@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_email_service, get_settings
 from app.models.user_model import User
-from app.schemas.user_schemas import UserCreate, UserUpdate
+from app.schemas.user_schemas import UserCreate, UserUpdate, UserUpdateProf
 from app.utils.nickname_gen import generate_nickname
 from app.utils.security import generate_verification_token, hash_password, verify_password
 from uuid import UUID
@@ -142,6 +142,48 @@ class UserService:
         except Exception as e:
             logger.error(f"Error during user update: {e}")
         return None
+    
+    @classmethod
+    async def updateprof(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
+        try:
+            # Debugging: Log the initial update data
+            logger.debug(f"Initial update data received: {update_data}")
+
+            # Validate and prepare the update data
+            validated_data = UserUpdateProf(**update_data).model_dump(exclude_unset=True)
+
+            # Debugging: Check if `is_professional` is present in validated data
+            if 'is_professional' not in validated_data:
+                logger.warning(f"'is_professional' not found in validated data: {validated_data}")
+
+            # Retrieve the user to update
+            user_to_update = await cls.get_by_id(session, user_id)
+            if not user_to_update:
+                logger.error(f"User with ID {user_id} not found.")
+                return None
+
+            # Update the user data in the database
+            query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
+            await cls._execute_query(session, query)
+
+            # Refresh and return the updated user
+            updated_user = await cls.get_by_id(session, user_id)
+            if updated_user:
+                await session.refresh(updated_user)  # Corrected line
+                # Debugging: Log the updated `is_professional` value
+                logger.info(f"User {user_id} updated successfully.")
+                logger.debug(f"Updated `is_professional` value: {updated_user.is_professional}")
+                return updated_user
+            else:
+                logger.error(f"User {user_id} not found after update attempt.")
+                return None
+
+        except ValidationError as e:
+            logger.error(f"Validation error during user update: {e}")
+        except Exception as e:
+            logger.error(f"Error during user update: {e}")
+        return None
+
         
     @classmethod
     async def delete(cls, session: AsyncSession, user_id: UUID) -> bool:

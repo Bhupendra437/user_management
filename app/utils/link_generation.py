@@ -24,6 +24,7 @@ def create_user_links(user_id: UUID, request: Request) -> List[Link]:
         ("self", "get_user", "GET", "view"),
         ("update_self", "update_user_self", "PUT", "self_update"),
         ("update", "update_user", "PUT", "update"),
+        ("update_prof", "update_user_professional", "PUT", "prof_update"),
         ("delete", "delete_user", "DELETE", "delete")
     ]
     return [

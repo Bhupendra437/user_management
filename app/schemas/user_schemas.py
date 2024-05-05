@@ -46,6 +46,13 @@ class UserBaseSelf(BaseModel):
     class Config:
         from_attributes = True
 
+class UserBaseProf(BaseModel):
+    is_professional: Optional[bool] = Field(default=False, example=True)
+
+    
+    class Config:
+        from_attributes = True
+
 class UserCreate(UserBase):
     email: EmailStr = Field(..., example="john.doe@example.com")
     password: str = Field(..., example="Secure*1234")
@@ -67,7 +74,7 @@ class UserUpdate(UserBase):
             raise ValueError("At least one field must be provided for update")
         return values
     
-class UserUpdateSelf(BaseModel):
+class UserUpdateSelf(UserBaseSelf):
     first_name: Optional[str] = Field(None, example="John")
     last_name: Optional[str] = Field(None, example="Doe")
     bio: Optional[str] = Field(None, example="Experienced software developer specializing in web applications.")
@@ -80,6 +87,14 @@ class UserUpdateSelf(BaseModel):
         if not any(values.values()):
             raise ValueError("At least one field must be provided for update")
         return values
+
+    class Config:
+        from_attributes = True
+
+
+class UserUpdateProf(UserBaseProf):
+    is_professional: Optional[bool] = Field(default=False, example=True)
+    
 
     class Config:
         from_attributes = True
