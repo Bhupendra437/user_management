@@ -108,6 +108,42 @@ class UserService:
             return None
 
     @classmethod
+    async def updateself(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
+        try:
+            # Validate the update data
+            validated_data = UserUpdate(**update_data).model_dump(exclude_unset=True)
+
+            # Retrieve the user to update
+            user_to_update = await cls.get_by_id(session, user_id)
+            if not user_to_update:
+                logger.error(f"User with ID {user_id} not found.")
+                return None
+
+            # Update the password if included in the update
+            if "password" in validated_data:
+                validated_data["hashed_password"] = hash_password(validated_data.pop("password"))
+
+            # Update the user data in the database
+            query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
+            await cls._execute_query(session, query)
+
+            # Refresh and return the updated user
+            updated_user = await cls.get_by_id(session, user_id)
+            if updated_user:
+                session.refresh(updated_user)
+                logger.info(f"User {user_id} updated successfully.")
+                return updated_user
+            else:
+                logger.error(f"User {user_id} not found after update attempt.")
+                return None
+
+        except ValidationError as e:
+            logger.error(f"Validation error during user update: {e}")
+        except Exception as e:
+            logger.error(f"Error during user update: {e}")
+        return None
+        
+    @classmethod
     async def delete(cls, session: AsyncSession, user_id: UUID) -> bool:
         user = await cls.get_by_id(session, user_id)
         if not user:

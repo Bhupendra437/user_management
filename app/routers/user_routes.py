@@ -20,6 +20,7 @@ Key Highlights:
 
 from builtins import dict, int, len, str
 from datetime import timedelta
+import token
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -27,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_current_user, get_db, get_email_service, require_role
 from app.schemas.pagination_schema import EnhancedPagination
 from app.schemas.token_schema import TokenResponse
-from app.schemas.user_schemas import LoginRequest, UserBase, UserCreate, UserListResponse, UserResponse, UserUpdate
+from app.schemas.user_schemas import LoginRequest, UserBase, UserCreate, UserListResponse, UserResponse, UserUpdate, UserUpdateSelf
 from app.services.user_service import UserService
 from app.services.jwt_service import create_access_token
 from app.utils.link_generation import create_user_links, generate_pagination_links
@@ -98,27 +99,58 @@ async def get_user(user_id: UUID, request: Request, db: AsyncSession = Depends(g
 # experience by adhering to REST principles and providing self-discoverable operations.
 
 @router.put("/users/{user_id}", response_model=UserResponse, name="update_user", tags=["User Management Requires (Admin or Manager Roles)"])
-async def update_user(user_id: UUID, user_update: UserUpdate, request: Request, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
+async def update_user(user_id: UUID, user_update: UserUpdateSelf, request: Request, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_role(["ADMIN", "MANAGER", "AUTHENTICATED"]))):
     """
     Update user information.
 
     - **user_id**: UUID of the user to update.
-    - **user_update**: UserUpdate model with updated user information.
+    - **user_update**: UserUpdateSelf model with updated user information.
     """
-    user_data = user_update.model_dump(exclude_unset=True)
+    print(f"Requested User ID: {user_id}")
+    print(f"Current User Email: {current_user['user_email']}")
+    print(f"User Update Data: {user_update}")
+    print(f"Current User: {current_user}")
+    #print(f"Updated User ID: {updated_user.id}")
+      
+    user_email = current_user['user_email']
 
-    existing_user = await UserService.get_by_email(db, user_update.email)
-    if existing_user:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
-    
-    existing_user_nickname = await UserService.get_by_nickname(db, user_update.nickname)
-    if existing_user_nickname:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nickname already exists")
-    
-    updated_user = await UserService.update(db, user_id, user_data)
-    if not updated_user:
+    authenticated_user = await UserService.get_by_email(db, user_email)
+    print(f"User Retrieved by email: {authenticated_user}")
+
+    # Retrieve the authenticated user
+    user_to_be_updated = await UserService.get_by_id(db, user_id)
+    print(f"User Retrieved by id: {user_to_be_updated}")
+    if not user_to_be_updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user to be updated not found")
+
+    # Check if the user to be updated exists
+    user_to_update = await UserService.get_by_id(db, user_id)
+    print(f"User to Update: {user_to_update}")
+    if not user_to_update:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    if "user_email" not in current_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User email is missing in the current session.")
+    
+
+    # Exclude unset fields to update only the fields passed in the request
+    user_data = user_update.model_dump(exclude_unset=True)
+    print(f"User Data for Update: {user_data}")
+
+    if user_to_be_updated != authenticated_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot update for other user.")
+
+    # Perform the update
+    try:
+        updated_user = await UserService.updateself(db, user_id, user_data)
+        print(f"Updated user: {updated_user}")
+        if not updated_user:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    except Exception as e:
+        print(f"Error during user update: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update user.")
+    
+   
     return UserResponse.model_construct(
         id=updated_user.id,
         bio=updated_user.bio,
@@ -135,6 +167,8 @@ async def update_user(user_id: UUID, user_update: UserUpdate, request: Request, 
         updated_at=updated_user.updated_at,
         links=create_user_links(updated_user.id, request)
     )
+
+
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, name="delete_user", tags=["User Management Requires (Admin or Manager Roles)"])

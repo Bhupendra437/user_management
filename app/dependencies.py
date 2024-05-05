@@ -29,20 +29,23 @@ async def get_db() -> AsyncSession:
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    payload = decode_token(token)
-    if payload is None:
-        raise credentials_exception
-    user_id: str = payload.get("sub")
-    user_role: str = payload.get("role")
-    if user_id is None or user_role is None:
-        raise credentials_exception
-    return {"user_id": user_id, "role": user_role}
+    try:
+        payload = decode_token(token)
+        user_email: str = payload.get("sub")
+        user_role: str = payload.get("role")
+        user_id: str = payload.get("id")  # Assuming `id` is also included in the payload
+        if user_email is None or user_role is None:
+            raise credentials_exception
+        return {"user_email": user_email, "role": user_role, "user_id": user_id}
+    except Exception as e:
+        raise credentials_exception from e
+
 
 def require_role(role: str):
     def role_checker(current_user: dict = Depends(get_current_user)):
