@@ -159,6 +159,7 @@ async def update_user_self(user_id: UUID, user_update: UserUpdateSelf, request: 
         nickname=updated_user.nickname,
         email=updated_user.email,
         role=updated_user.role,
+        is_professional=updated_user.is_professional,
         last_login_at=updated_user.last_login_at,
         profile_picture_url=updated_user.profile_picture_url,
         github_profile_url=updated_user.github_profile_url,
