@@ -98,7 +98,7 @@ async def get_user(user_id: UUID, request: Request, db: AsyncSession = Depends(g
 # This approach not only ensures that the API is secure and efficient but also promotes a better client
 # experience by adhering to REST principles and providing self-discoverable operations.
 
-@router.put("/users/{user_id}", response_model=UserResponse, name="update_user_self", tags=["Self Service (Admin or Manager or Authenticated Roles)"])
+@router.put("/users/self/{user_id}", response_model=UserResponse, name="update_user_self", tags=["Self Service (Admin or Manager or Authenticated Roles)"])
 async def update_user_self(user_id: UUID, user_update: UserUpdateSelf, request: Request, db: AsyncSession = Depends(get_db), current_user: dict = Depends(require_role(["ADMIN", "MANAGER", "AUTHENTICATED"]))):
     """
     Update user information.
@@ -169,7 +169,44 @@ async def update_user_self(user_id: UUID, user_update: UserUpdateSelf, request: 
     )
 
 
+@router.put("/users/{user_id}", response_model=UserResponse, name="update_user", tags=["User Management Requires (Admin or Manager Roles)"])
+async def update_user(user_id: UUID, user_update: UserUpdate, request: Request, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
+    """
+    Update user information.
 
+    - **user_id**: UUID of the user to update.
+    - **user_update**: UserUpdate model with updated user information.
+    """
+    user_data = user_update.model_dump(exclude_unset=True)
+
+    existing_user = await UserService.get_by_email(db, user_update.email)
+    if existing_user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already exists")
+    
+    existing_user_nickname = await UserService.get_by_nickname(db, user_update.nickname)
+    if existing_user_nickname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nickname already exists")
+    
+    updated_user = await UserService.update(db, user_id, user_data)
+    if not updated_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    return UserResponse.model_construct(
+        id=updated_user.id,
+        bio=updated_user.bio,
+        first_name=updated_user.first_name,
+        last_name=updated_user.last_name,
+        nickname=updated_user.nickname,
+        email=updated_user.email,
+        role=updated_user.role,
+        last_login_at=updated_user.last_login_at,
+        profile_picture_url=updated_user.profile_picture_url,
+        github_profile_url=updated_user.github_profile_url,
+        linkedin_profile_url=updated_user.linkedin_profile_url,
+        created_at=updated_user.created_at,
+        updated_at=updated_user.updated_at,
+        links=create_user_links(updated_user.id, request)
+    )
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, name="delete_user", tags=["User Management Requires (Admin or Manager Roles)"])
 async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme), current_user: dict = Depends(require_role(["ADMIN", "MANAGER"]))):
