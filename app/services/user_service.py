@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 import secrets
 from typing import Optional, Dict, List
 from pydantic import ValidationError
-from sqlalchemy import func, null, update, select
+from sqlalchemy import false, func, null, true, update, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_email_service, get_settings
 from app.models.user_model import User
-from app.schemas.user_schemas import UserCreate, UserUpdate
+from app.schemas.user_schemas import UserCreate, UserUpdate, UserUpdateProf
 from app.utils.nickname_gen import generate_nickname
 from app.utils.security import generate_verification_token, hash_password, verify_password
 from uuid import UUID
@@ -97,7 +97,7 @@ class UserService:
             await cls._execute_query(session, query)
             updated_user = await cls.get_by_id(session, user_id)
             if updated_user:
-                session.refresh(updated_user)  # Explicitly refresh the updated user object
+                await session.refresh(updated_user)  # Explicitly refresh the updated user object
                 logger.info(f"User {user_id} updated successfully.")
                 return updated_user
             else:
@@ -107,6 +107,91 @@ class UserService:
             logger.error(f"Error during user update: {e}")
             return None
 
+    @classmethod
+    async def updateself(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str]) -> Optional[User]:
+        try:
+            # Validate the update data
+            validated_data = UserUpdate(**update_data).model_dump(exclude_unset=True)
+
+            # Retrieve the user to update
+            user_to_update = await cls.get_by_id(session, user_id)
+            if not user_to_update:
+                logger.error(f"User with ID {user_id} not found.")
+                return None
+
+            # Update the password if included in the update
+            if "password" in validated_data:
+                validated_data["hashed_password"] = hash_password(validated_data.pop("password"))
+
+            # Update the user data in the database
+            query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
+            await cls._execute_query(session, query)
+
+            # Refresh and return the updated user
+            updated_user = await cls.get_by_id(session, user_id)
+            if updated_user:
+                await session.refresh(updated_user)
+                logger.info(f"User {user_id} updated successfully.")
+                return updated_user
+            else:
+                logger.error(f"User {user_id} not found after update attempt.")
+                return None
+
+        except ValidationError as e:
+            logger.error(f"Validation error during user update: {e}")
+        except Exception as e:
+            logger.error(f"Error during user update: {e}")
+        return None
+    
+    @classmethod
+    async def updateprof(cls, session: AsyncSession, user_id: UUID, update_data: Dict[str, str], email_service: EmailService) -> Optional[User]:
+        try:
+            
+            # Debugging: Log the initial update data
+            logger.debug(f"Initial update data received: {update_data}")
+
+            # Validate and prepare the update data
+            validated_data = UserUpdateProf(**update_data).model_dump(exclude_unset=True)
+
+            # Debugging: Check if `is_professional` is present in validated data
+            if 'is_professional' not in validated_data:
+                logger.warning(f"'is_professional' not found in validated data: {validated_data}")
+
+            # Retrieve the user to update
+            user_to_update = await cls.get_by_id(session, user_id)
+            if not user_to_update:
+                logger.error(f"User with ID {user_id} not found.")
+                return None
+            original_is_professional = user_to_update.is_professional
+
+            # Update the user data in the database
+            query = update(User).where(User.id == user_id).values(**validated_data).execution_options(synchronize_session="fetch")
+            await cls._execute_query(session, query)
+
+            # Refresh and return the updated user
+            updated_user = await cls.get_by_id(session, user_id)
+            if updated_user:
+                await session.refresh(updated_user)  # Corrected line
+                # Debugging: Log the updated `is_professional` value
+                logger.info(f"User {user_id} updated successfully.")
+                logger.debug(f"Updated `is_professional` value: {updated_user.is_professional}")
+
+                if original_is_professional is False and updated_user.is_professional is True:
+                    logger.info(f"Sending professional status email to user {updated_user.email}")
+                    await email_service.send_professional_status_email(updated_user)
+
+                return updated_user
+            else:
+                logger.error(f"User {user_id} not found after update attempt.")
+                return None
+
+        except ValidationError as e:
+            logger.error(f"Validation error during user update: {e}")
+        except Exception as e:
+            logger.error(f"Error during user update: {e}")
+        return None
+
+        
     @classmethod
     async def delete(cls, session: AsyncSession, user_id: UUID) -> bool:
         user = await cls.get_by_id(session, user_id)
