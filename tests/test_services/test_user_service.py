@@ -137,7 +137,7 @@ async def test_account_lock_after_failed_logins(db_session, verified_user):
     max_login_attempts = get_settings().max_login_attempts
     for _ in range(max_login_attempts):
         await UserService.login_user(db_session, verified_user.email, "wrongpassword")
-    
+
     is_locked = await UserService.is_account_locked(db_session, verified_user.email)
     assert is_locked, "The account should be locked after the maximum number of failed login attempts."
 
@@ -161,3 +161,28 @@ async def test_unlock_user_account(db_session, locked_user):
     assert unlocked, "The account should be unlocked"
     refreshed_user = await UserService.get_by_id(db_session, locked_user.id)
     assert not refreshed_user.is_locked, "The user should no longer be locked"
+
+async def test_execute_query_commit_success(db_session):
+    query = select(User)
+    result = await UserService._execute_query(db_session, query)
+    assert result is not None
+
+async def test_updateself_user_valid_data(db_session, user):
+    new_email = "updated_email_self@example.com"
+    update_data = {"email": new_email, "nickname": "self_update_nickname"}
+    updated_user = await UserService.updateself(db_session, user.id, update_data)
+    assert updated_user is not None
+    assert updated_user.email == new_email
+    assert updated_user.nickname == "self_update_nickname"
+
+async def test_updateself_user_invalid_data(db_session, user):
+    update_data = {"email": "invalidemail"}
+    updated_user = await UserService.updateself(db_session, user.id, update_data)
+    assert updated_user is None
+
+async def test_updateprof_user_valid_data(db_session, user, email_service):
+    update_data = {"is_professional": True}
+    updated_user = await UserService.updateprof(db_session, user.id, update_data, email_service)
+    assert updated_user is not None
+    assert updated_user.email == user.email
+    assert updated_user.is_professional
